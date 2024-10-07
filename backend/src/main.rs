@@ -2,5 +2,5 @@
 
 #[cfg(feature = "export-abi")]
 fn main() {
-    restaurant_voting::print_abi("MIT-OR-APACHE-2.0", "pragma solidity ^0.8.23;");
+    safe_sip::print_abi("MIT-OR-APACHE-2.0", "pragma solidity ^0.8.23;");
 }
