@@ -3,48 +3,18 @@
 import { useState, useEffect } from "react";
 import Web3 from "web3";
 import { Button } from "@/components/ui/button";
-import {
-    Card,
-    CardContent,
-    CardFooter,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import ABI from "./abi.json";
 
-// This ABI is a simplified example and should be replaced with your actual smart contract ABI
-const ABI = [
-    {
-        inputs: [
-            {
-                internalType: "string",
-                name: "imageHash",
-                type: "string",
-            },
-            {
-                internalType: "bool",
-                name: "isFake",
-                type: "bool",
-            },
-        ],
-        name: "storeValidationResult",
-        outputs: [],
-        stateMutability: "nonpayable",
-        type: "function",
-    },
-];
+const CA = "0xc7c553f9031b2cf0fd15603a0e39685c86a1a457";
 
 export default function Component() {
-    const [file, setFile] = useState<File | null>(null);
-    const [validationResult, setValidationResult] = useState<string | null>(
-        null
-    );
-    const [transactionHash, setTransactionHash] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
     const [walletAddress, setWalletAddress] = useState<string | null>(null);
+    const [contract, setContract] = useState<any | null>(null);
+    const [barcode, setBarcode] = useState<string>("");
+    const { toast } = useToast();
 
     useEffect(() => {
         // Check if Web3 is injected by the browser (Mist/MetaMask)
@@ -61,116 +31,192 @@ export default function Component() {
         }
     }, []);
 
+    const arbSepoliaRpcUrl = "https://sepolia-rollup.arbitrum.io/rpc";
     const connectWallet = async () => {
+        let web3: any;
         if (typeof window.ethereum !== "undefined") {
             try {
-                // Request account access
+                web3 = new Web3(window.ethereum);
                 await window.ethereum.request({
                     method: "eth_requestAccounts",
                 });
-                const web3 = new Web3(window.ethereum);
-                const accounts = await web3.eth.getAccounts();
-                setWalletAddress(accounts[0]);
-                toast({
-                    title: "Wallet Connected",
-                    description: "Your wallet has been successfully connected.",
+
+                await window.ethereum.request({
+                    method: "wallet_switchEthereumChain",
+                    params: [{ chainId: "0x66eee" }], // Arbitrum Sepolia chain ID
                 });
+            } catch (switchError: any) {
+                // This error code indicates that the chain has not been added to MetaMask.
+                if (switchError.code === 4902) {
+                    try {
+                        await window.ethereum.request({
+                            method: "wallet_addEthereumChain",
+                            params: [
+                                {
+                                    chainId: "0x66eee",
+                                    chainName: "Arbitrum Sepolia",
+                                    nativeCurrency: {
+                                        name: "Ether",
+                                        symbol: "ETH",
+                                        decimals: 18,
+                                    },
+                                    rpcUrls: [arbSepoliaRpcUrl],
+                                    blockExplorerUrls: [
+                                        "https://sepolia.arbiscan.io/",
+                                    ],
+                                },
+                            ],
+                        });
+                    } catch (addError) {
+                        console.error(
+                            "Failed to add Arbitrum Sepolia network:",
+                            addError
+                        );
+                        toast({
+                            title: "Network Addition Failed",
+                            description:
+                                "Unable to add Arbitrum Sepolia network. Please add it manually in MetaMask.",
+                            variant: "destructive",
+                        });
+                        return;
+                    }
+                } else {
+                    console.error(
+                        "Failed to switch to Arbitrum Sepolia network:",
+                        switchError
+                    );
+                    toast({
+                        title: "Network Switch Failed",
+                        description:
+                            "Unable to switch to Arbitrum Sepolia network. Please switch manually in MetaMask.",
+                        variant: "destructive",
+                    });
+                    return;
+                }
+            }
+
+            try {
+                const accounts = await web3.eth.getAccounts();
+                if (accounts.length > 0) {
+                    setWalletAddress(accounts[0]);
+                    toast({
+                        title: "Wallet Connected",
+                        description: `Connected to account: ${accounts[0].slice(
+                            0,
+                            6
+                        )}...${accounts[0].slice(-4)} on Arbitrum Sepolia`,
+                    });
+                } else {
+                    throw new Error("No accounts found");
+                }
             } catch (error) {
-                console.error("Failed to connect wallet:", error);
+                console.error("Failed to get accounts:", error);
                 toast({
                     title: "Connection Failed",
-                    description: "Failed to connect wallet. Please try again.",
+                    description:
+                        "Unable to access your Ethereum accounts. Please check your wallet and try again.",
                     variant: "destructive",
                 });
             }
         } else {
             toast({
-                title: "Web3 Not Found",
-                description:
-                    "Please install MetaMask or another Web3 provider.",
+                title: "MetaMask Not Found",
+                description: "Please install MetaMask to use this feature.",
                 variant: "destructive",
             });
         }
     };
 
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (event.target.files && event.target.files[0]) {
-            setFile(event.target.files[0]);
-        }
+    const products: IProduct[] = [
+        {
+            productId: 1,
+            name: "HENNESSY VSOP COGNAC 1L",
+            barcode: "3245990987604",
+            isFake: false,
+        },
+        {
+            productId: 2,
+            name: "HENNESSY VSOP PRIVILEGE 1L",
+            barcode: "3245990987604",
+            isFake: false,
+        },
+        {
+            productId: 3,
+            name: "HENNESSY V.S.O.P",
+            barcode: "3245990987604",
+            isFake: false,
+        },
+    ];
+    interface IProduct {
+        productId: number;
+        name: string;
+        barcode: string;
+        isFake: boolean;
+    }
+
+    const addProducts = async () => {
+        products.forEach(async (product: IProduct) => {
+            const { productId, name, barcode, isFake } = product;
+            const result = await contract.methods
+                .addProduct(productId, name, barcode, isFake)
+                .send({ from: walletAddress });
+            console.log(result);
+        });
     };
 
-    const validateImage = async () => {
-        if (!file || !walletAddress) return;
+    const getContract = async () => {
+        const web3 = new Web3(window.ethereum);
+        const contract = new web3.eth.Contract(ABI, CA);
+        setContract(contract);
+        return contract;
+    };
 
-        setIsLoading(true);
-        try {
-            // Simulate API call for image validation
-            const formData = new FormData();
-            formData.append("image", file);
+    useEffect(() => {
+        getContract();
+    }, []);
 
-            // Replace with your actual API endpoint
-            const response = await fetch(
-                "https://api.example.com/validate-image",
-                {
-                    method: "POST",
-                    body: formData,
-                }
-            );
-
-            if (!response.ok) {
-                throw new Error("Image validation failed");
-            }
-
-            const data = await response.json();
-            const isFake = data.isFake;
-
-            setValidationResult(
-                isFake
-                    ? "The image appears to be fake."
-                    : "The image appears to be genuine."
-            );
-
-            // Connect to Arbitrum network
-            const web3 = new Web3("https://arb1.arbitrum.io/rpc");
-
-            // Replace with your actual contract address
-            const contractAddress =
-                "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
-            const contract = new web3.eth.Contract(ABI, contractAddress);
-
-            // Generate a simple hash of the file (in a real app, use a more robust method)
-            const imageHash = web3.utils.sha3(file.name + file.size);
-
-            // Store the result on the blockchain
-            const transaction = await contract.methods
-                .storeValidationResult(imageHash, isFake)
-                .send({ from: walletAddress });
-
-            setTransactionHash(transaction.transactionHash);
-
-            toast({
-                title: "Validation Complete",
-                description: "Result stored on the blockchain successfully.",
-            });
-        } catch (error) {
-            console.error("Error:", error);
+    const verifyBarcode = async () => {
+        if (!contract || !walletAddress) {
             toast({
                 title: "Error",
-                description:
-                    "Failed to validate image or store result on the blockchain.",
+                description: "Please connect your wallet first.",
                 variant: "destructive",
             });
-            setTransactionHash(
-                "Error: Unable to store result on the blockchain"
-            );
-        } finally {
-            setIsLoading(false);
+            return;
         }
+
+        if (!barcode) {
+            toast({
+                title: "Error",
+                description: "Please enter a barcode.",
+                variant: "destructive",
+            });
+            return;
+        }
+        toast({
+            title: "Verification Initiated",
+            description: `Verifying barcode: ${barcode}`,
+        });
+
+        const result = await contract.methods.isValidProduct(barcode).call();
+        console.log(result);
+        toast({
+            title: "Verification Result",
+            description: `Result: ${result}`,
+        });
     };
 
     return (
         <div className="min-h-screen bg-background flex flex-col">
-            <header className="w-full p-4 flex justify-end">
+            <header className="w-full p-4 flex justify-end ">
+                <Button
+                    onClick={addProducts}
+                    disabled={!walletAddress}
+                    className="mr-5"
+                >
+                    Add Products
+                </Button>
+
                 <Button onClick={connectWallet} disabled={!!walletAddress}>
                     {walletAddress
                         ? `Connected: ${walletAddress.slice(
@@ -180,39 +226,21 @@ export default function Component() {
                         : "Connect Wallet"}
                 </Button>
             </header>
-            <main className="flex-grow flex items-center justify-center p-4">
-                <Card className="w-full max-w-md">
-                    <CardHeader>
-                        <CardTitle>Fake Image Validator</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid w-full items-center gap-4">
-                            <div className="flex flex-col space-y-1.5">
-                                <Label htmlFor="image">Upload Image</Label>
-                                <Input
-                                    id="image"
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={handleFileChange}
-                                />
-                            </div>
-                        </div>
-                    </CardContent>
-                    <CardFooter className="flex flex-col items-start space-y-2">
-                        <Button
-                            onClick={validateImage}
-                            disabled={!file || isLoading || !walletAddress}
-                        >
-                            {isLoading ? "Validating..." : "Validate Image"}
-                        </Button>
-                        {validationResult && (
-                            <div className="text-sm">
-                                <p>Result: {validationResult}</p>
-                                <p>Transaction Hash: {transactionHash}</p>
-                            </div>
-                        )}
-                    </CardFooter>
-                </Card>
+            <main className="flex-grow flex flex-col gap-5 items-center justify-center p-4 space-y-4">
+                <div className="text-6xl font-[800] text-center">
+                    Say Goodbye to buying fake drinks. <br /> Verify Valid
+                    Drinks
+                </div>
+                <Input
+                    type="text"
+                    placeholder="Enter barcode"
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    className="max-w-xs"
+                />
+                <Button onClick={verifyBarcode} disabled={!walletAddress}>
+                    Verify Barcode
+                </Button>
             </main>
             <Toaster />
         </div>
